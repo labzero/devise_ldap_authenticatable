@@ -6,37 +6,36 @@ module Devise
 
     module Adapter
 
-      def self.get_ldap_domain_index(login, password_plaintext)
-        ldap_config_size = YAML.load(ERB.new(File.read(::Devise.ldap_config || "#{Rails.root}/config/ldap.yml")).result)[Rails.env].size
+      def self.get_ldap_domain(login)
+        ldap_config = YAML.load(ERB.new(File.read(::Devise.ldap_config || "#{Rails.root}/config/ldap.yml")).result)[Rails.env]
         options = {:login => login,
-                   :password => password_plaintext,
                    :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                    :admin => ::Devise.ldap_use_admin_to_bind}
 
-        for j in 0...(ldap_config_size)
-          options[:domain_index] = j
+        for i in 0...(ldap_config.size)
+          options[:domain] = ldap_config[i]['name']
           resource = Devise::LDAP::Connection.new(options)
-          return j if resource.authenticated?
+          break if resource.search_for_login.present?
         end
         return nil
       end
 
-      def self.valid_credentials?(login, password_plaintext, ldap_domain_index)
+      def self.valid_credentials?(login, password_plaintext, ldap_domain = nil)
         options = {:login => login,
                    :password => password_plaintext,
                    :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                    :admin => ::Devise.ldap_use_admin_to_bind,
-                   :domain_index => ldap_domain_index}
+                   :domain => ldap_domain || get_ldap_domain(login)}
         resource = Devise::LDAP::Connection.new(options)
         resource.authorized?
       end
 
-      def self.update_password(login, new_password)
+      def self.update_password(login, new_password, ldap_domain = nil)
         options = {:login => login,
                    :new_password => new_password,
                    :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                    :admin => ::Devise.ldap_use_admin_to_bind,
-                   :domain_index => ldap_domain_index}
+                   :domain => ldap_domain || get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
         resource.change_password! if new_password.present?
@@ -50,7 +49,7 @@ module Devise
         options = {:login => login,
                    :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                    :admin => ::Devise.ldap_use_admin_to_bind,
-                   :domain_index => ldap_domain_index}
+                   :domain => get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
       end
@@ -75,7 +74,7 @@ module Devise
         options = { :login => login,
                     :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                     :password => password,
-                    :domain_index => ldap_domain_index}
+                    :domain => get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
         resource.set_param(param, new_value)
@@ -85,7 +84,7 @@ module Devise
         options = { :login => login,
                     :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                     :password => password,
-                    :domain_index => ldap_domain_index}
+                    :domain => get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
         resource.delete_param(param)

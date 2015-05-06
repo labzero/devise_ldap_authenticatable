@@ -30,7 +30,7 @@ module Devise
 
       def reset_password!(new_password, new_password_confirmation)
         if new_password == new_password_confirmation && ::Devise.ldap_update_password
-          Devise::LDAP::Adapter.update_password(login_with, new_password)
+          Devise::LDAP::Adapter.update_password(login_with, new_password, ldap_domain)
         end
         clear_reset_password_token if valid?
         save
@@ -45,11 +45,11 @@ module Devise
 
       # Checks if a resource is valid upon authentication.
       def valid_ldap_authentication?(password)
-        Devise::LDAP::Adapter.valid_credentials?(login_with, password, ldap_domain_index(password))
+        Devise::LDAP::Adapter.valid_credentials?(login_with, password, ldap_domain)
       end
 
-      def ldap_domain_index(password)
-        @ldap_domain_index ||= (User::DOMAIN_ITERATOR_MAPPING.index(ldap_domain) || Devise::LDAP::Adapter.get_ldap_domain_index(login_with, password))
+      def ldap_domain
+        @ldap_domain ||= (User::DOMAIN_ITERATOR_MAPPING.index(ldap_domain) || Devise::LDAP::Adapter.get_ldap_domain(login_with))
       end
 
       def ldap_entry
