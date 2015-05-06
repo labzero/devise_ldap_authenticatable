@@ -4,12 +4,13 @@ module Devise
       attr_reader :ldap, :login
 
       def initialize(params = {})
+        ldap_options = params
+        @ldap_domain_index = ldap_options[:domain_index].to_i
         if ::Devise.ldap_config.is_a?(Proc)
           ldap_config = ::Devise.ldap_config.call
         else
-          ldap_config = YAML.load(ERB.new(File.read(::Devise.ldap_config || "#{Rails.root}/config/ldap.yml")).result)[Rails.env]
+          ldap_config = YAML.load(ERB.new(File.read(::Devise.ldap_config || "#{Rails.root}/config/ldap.yml")).result)[Rails.env][@ldap_domain_index]
         end
-        ldap_options = params
         ldap_config["ssl"] = :simple_tls if ldap_config["ssl"] === true
         ldap_options[:encryption] = ldap_config["ssl"].to_sym if ldap_config["ssl"]
 
@@ -52,6 +53,16 @@ module Devise
           else
             ldap_entry.dn
           end
+        end
+      end
+
+      def domain_user_sid
+        @domain_user_sid ||= begin
+          object_sid_array = binary_sid_to_string(@login_ldap_entry.send(:objectSid)[0]).split('-')
+          object_sid_array.delete_at(-1)
+          primary_group_sid_base = object_sid_array.join('-')
+          primary_group_id = @login_ldap_entry.send(:primaryGroupID)[0]
+          primary_group_sid_base + '-' + primary_group_id
         end
       end
 
@@ -133,13 +144,19 @@ module Devise
         else
           # AD optimization - extension will recursively check sub-groups with one query
           # "(memberof:1.2.840.113556.1.4.1941:=group_name)"
-          search_result = admin_ldap.search(:base => dn,
-                            :filter => Net::LDAP::Filter.ex("memberof:1.2.840.113556.1.4.1941", group_name),
-                            :scope => Net::LDAP::SearchScope_BaseObject)
-          # Will return  the user entry if belongs to group otherwise nothing
-          if search_result.length == 1 && search_result[0].dn.eql?(dn)
-            in_group = true
+          # Search both the user's group and the Domain User groups
+          domain_user_dn = admin_ldap.search(filter: "objectSid=#{domain_user_sid}")[0][:dn]
+          [dn, domain_user_dn].each do |distinguished_name|
+            search_result = admin_ldap.search(:base => distinguished_name,
+                                              :filter => Net::LDAP::Filter.ex("memberof:1.2.840.113556.1.4.1941", group_name),
+                                              :scope => Net::LDAP::SearchScope_BaseObject)
+            # Will return  the user entry if belongs to group otherwise nothing
+            if search_result.length == 1 && search_result[0].dn.eql?(distinguished_name)
+              in_group = true
+              break
+            end
           end
+
         end
 
         unless in_group
@@ -170,8 +187,13 @@ module Devise
         admin_ldap = Connection.admin
 
         DeviseLdapAuthenticatable::Logger.send("Getting groups for #{dn}")
-        filter = Net::LDAP::Filter.eq("uniqueMember", dn)
-        admin_ldap.search(:filter => filter, :base => @group_base).collect(&:dn)
+        domain_user_dn = admin_ldap.search(filter: "objectSid=#{domain_user_sid}")[0][:dn]
+        groups = []
+        [dn, domain_user_dn].each do |distinguished_name|
+          filter = Net::LDAP::Filter.eq("member", distinguished_name)
+          groups << admin_ldap.search(:filter => filter, :base => @group_base).collect(&:dn)
+        end
+        groups.flatten
       end
 
       def valid_login?
@@ -196,7 +218,7 @@ module Devise
       private
 
       def self.admin
-        ldap = Connection.new(:admin => true).ldap
+        ldap = Connection.new(:admin => true, :domain_index => @ldap_domain_index).ldap
 
         unless ldap.bind
           DeviseLdapAuthenticatable::Logger.send("Cannot bind to admin LDAP user")
@@ -231,6 +253,20 @@ module Devise
         DeviseLdapAuthenticatable::Logger.send("Modifying user #{dn}")
         privileged_ldap.modify(:dn => dn, :operations => operations)
       end
+
+      def binary_sid_to_string(binary)
+        sid = []
+        revision = binary[0].ord
+        raise 'Unknown revision' if revision != 1
+        sid << revision
+        segment_count = binary[1].ord
+        raise 'invalid binary length' if binary.bytesize != (segment_count * 4) + 8 # 2 bytes for version and length, 6 bytes for extra wide first segment
+        high_bits, low_bits = binary.byteslice(2..7).unpack('nN')
+        sid << (high_bits << 32) + low_bits
+        sid << binary.byteslice(8..-1).unpack('V*')
+        'S-' + sid.flatten.join('-')
+      end
+
     end
   end
 end
