@@ -68,22 +68,28 @@ module Devise
         end
       end
 
-      def domain_user_sid
-        @domain_user_sid ||= begin
-          object_sid_array = binary_sid_to_string(@login_ldap_entry.send(:objectSid)[0]).split('-')
-          object_sid_array.delete_at(-1)
-          primary_group_sid_base = object_sid_array.join('-')
-          primary_group_id = @login_ldap_entry.send(:primaryGroupID)[0]
-          primary_group_sid_base + '-' + primary_group_id
+      def primary_group_sid
+        unless @primary_group_sid
+          return nil unless @login_ldap_entry.respond_to?(:objectSid) && @login_ldap_entry.respond_to?(:primaryGroupID)
+          primary_group_id = @login_ldap_entry.primaryGroupID
+          return nil if primary_group_id.blank?
+          object_sid_array = @login_ldap_entry.objectSid
+          return nil if object_sid_array.blank?
+          object_sid = binary_sid_to_string(object_sid_array[0]).split('-')
+          object_sid.delete_at(-1)
+          primary_group_sid_base = object_sid.join('-')
+          @primary_group_sid = primary_group_sid_base + '-' + primary_group_id[0]
         end
+        @primary_group_sid
       end
 
-      def domain_user_dn(admin_ldap_connection)
-        result = admin_ldap_connection.search(filter: "objectSid=#{domain_user_sid}")
+      def primary_group_dn(admin_ldap_connection)
+        return nil if primary_group_sid.blank?
+        result = admin_ldap_connection.search(filter: "objectSid=#{primary_group_sid}")
         if result.present?
-          return result[0].dn
+          return result[0].dn 
         else
-          DeviseLdapAuthenticatable::Logger.send("No domain user found with objectSid: #{domain_user_sid}")
+          DeviseLdapAuthenticatable::Logger.send("No primary group found with objectSid: #{primary_group_sid}")
           return nil # Don't want to return an empty array in the case where that is the value of `result`
         end
       end
@@ -164,7 +170,8 @@ module Devise
           # AD optimization - extension will recursively check sub-groups with one query
           # "(memberof:1.2.840.113556.1.4.1941:=group_name)"
           # Search both the user's group and the Domain User groups
-          [dn, domain_user_dn(admin_ldap)].each do |distinguished_name|
+          [dn, primary_group_dn(admin_ldap)].each do |distinguished_name|
+            next if distinguished_name.blank?
             search_result = admin_ldap.search(:base => distinguished_name,
                                               :filter => Net::LDAP::Filter.ex("memberof:1.2.840.113556.1.4.1941", group_name),
                                               :scope => Net::LDAP::SearchScope_BaseObject)
@@ -200,7 +207,7 @@ module Devise
         admin_ldap = Connection.admin(ldap_domain)
         DeviseLdapAuthenticatable::Logger.send("Getting groups for #{dn}")
         groups = []
-        [dn, domain_user_dn(admin_ldap)].each do |distinguished_name|
+        [dn, primary_group_dn(admin_ldap)].each do |distinguished_name|
           next if distinguished_name.blank?
           filter = Net::LDAP::Filter.eq("member", distinguished_name)
           groups << admin_ldap.search(:filter => filter, :base => @group_base)
