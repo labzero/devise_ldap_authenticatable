@@ -48,12 +48,12 @@ module Devise
         @new_password = params[:new_password]
       end
 
-      def delete_param(param)
-        update_ldap [[:delete, param.to_sym, nil]]
+      def delete_param(param, ldap_domain)
+        update_ldap([[:delete, param.to_sym, nil]], ldap_domain)
       end
 
-      def set_param(param, new_value)
-        update_ldap( { param.to_sym => new_value } )
+      def set_param(param, new_value, ldap_domain)
+        update_ldap({ param.to_sym => new_value }, ldap_domain)
       end
 
       def dn
@@ -116,7 +116,7 @@ module Devise
         authenticate!
       end
 
-      def authorized?
+      def authorized?(ldap_domain)
         DeviseLdapAuthenticatable::Logger.send("Authorizing user #{dn}")
         if !authenticated?
           DeviseLdapAuthenticatable::Logger.send("Not authorized because not authenticated.")
@@ -124,7 +124,7 @@ module Devise
         elsif !in_required_groups?
           DeviseLdapAuthenticatable::Logger.send("Not authorized because not in required groups.")
           return false
-        elsif !has_required_attribute?
+        elsif !has_required_attribute?(ldap_domain)
           DeviseLdapAuthenticatable::Logger.send("Not authorized because does not have required attribute.")
           return false
         else
@@ -132,8 +132,8 @@ module Devise
         end
       end
 
-      def change_password!
-        update_ldap(:userpassword => Net::LDAP::Password.generate(:sha, @new_password))
+      def change_password!(ldap_domain)
+        update_ldap({:userpassword => Net::LDAP::Password.generate(:sha, @new_password)}, ldap_domain)
       end
 
       def in_required_groups?
@@ -152,9 +152,8 @@ module Devise
         return true
       end
 
-      def in_group?(group_name, group_attribute = LDAP::DEFAULT_GROUP_UNIQUE_MEMBER_LIST_KEY)
-        admin_ldap = Connection.admin
-
+      def in_group?(group_name, group_attribute = LDAP::DEFAULT_GROUP_UNIQUE_MEMBER_LIST_KEY, ldap_domain)
+        admin_ldap = Connection.admin(ldap_domain)
         unless ::Devise.ldap_ad_group_check
           admin_ldap.search(:base => group_name, :scope => Net::LDAP::SearchScope_BaseObject) do |entry|
             if entry[group_attribute].include? dn
@@ -177,12 +176,13 @@ module Devise
         end
 
         DeviseLdapAuthenticatable::Logger.send("User #{dn} is not in group: #{group_name}")
+        false
       end
 
-      def has_required_attribute?
+      def has_required_attribute?(ldap_domain)
         return true unless ::Devise.ldap_check_attributes
 
-        admin_ldap = Connection.admin
+        admin_ldap = Connection.admin(ldap_domain)
 
         user = find_ldap_user(admin_ldap)
 
@@ -196,14 +196,14 @@ module Devise
         return true
       end
 
-      def user_groups
-        admin_ldap = Connection.admin
-
+      def user_groups(ldap_domain)
+        admin_ldap = Connection.admin(ldap_domain)
         DeviseLdapAuthenticatable::Logger.send("Getting groups for #{dn}")
         groups = []
         [dn, domain_user_dn(admin_ldap)].each do |distinguished_name|
+          next if distinguished_name.blank?
           filter = Net::LDAP::Filter.eq("member", distinguished_name)
-          groups << admin_ldap.search(:filter => filter, :base => @group_base).collect(&:dn)
+          groups << admin_ldap.search(:filter => filter, :base => @group_base)
         end
         groups.flatten
       end
@@ -229,8 +229,8 @@ module Devise
 
       private
 
-      def self.admin
-        ldap = Connection.new(:admin => true, :domain => @ldap_domain).ldap
+      def self.admin(ldap_domain)
+        ldap = Connection.new(:admin => true, :domain => ldap_domain).ldap
 
         unless ldap.bind
           DeviseLdapAuthenticatable::Logger.send("Cannot bind to admin LDAP user")
@@ -245,7 +245,7 @@ module Devise
         ldap.search(:base => dn, :scope => Net::LDAP::SearchScope_BaseObject).try(:first)
       end
 
-      def update_ldap(ops)
+      def update_ldap(ops, ldap_domain)
         operations = []
         if ops.is_a? Hash
           ops.each do |key,value|
@@ -256,7 +256,7 @@ module Devise
         end
 
         if ::Devise.ldap_use_admin_to_bind
-          privileged_ldap = Connection.admin
+          privileged_ldap = Connection.admin(ldap_domain)
         else
           authenticate!
           privileged_ldap = self.ldap
