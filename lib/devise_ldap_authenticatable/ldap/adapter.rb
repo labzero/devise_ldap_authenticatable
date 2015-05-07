@@ -27,7 +27,7 @@ module Devise
                    :admin => ::Devise.ldap_use_admin_to_bind,
                    :domain => ldap_domain || get_ldap_domain(login)}
         resource = Devise::LDAP::Connection.new(options)
-        resource.authorized?
+        resource.authorized?(options[:domain])
       end
 
       def self.update_password(login, new_password, ldap_domain = nil)
@@ -38,7 +38,7 @@ module Devise
                    :domain => ldap_domain || get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
-        resource.change_password! if new_password.present?
+        resource.change_password!(options[:domain]) if new_password.present?
       end
 
       def self.update_own_password(login, new_password, current_password)
@@ -59,11 +59,11 @@ module Devise
       end
 
       def self.get_groups(login)
-        self.ldap_connect(login).user_groups
+        self.ldap_connect(login).user_groups(get_ldap_domain(login))
       end
 
       def self.in_ldap_group?(login, group_name, group_attribute = nil)
-        self.ldap_connect(login).in_group?(group_name, group_attribute)
+        self.ldap_connect(login).in_group?(group_name, group_attribute, get_ldap_domain(login))
       end
 
       def self.get_dn(login)
@@ -77,7 +77,7 @@ module Devise
                     :domain => get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
-        resource.set_param(param, new_value)
+        resource.set_param(param, new_value, options[:domain])
       end
 
       def self.delete_ldap_param(login, param, password = nil)
@@ -87,7 +87,7 @@ module Devise
                     :domain => get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
-        resource.delete_param(param)
+        resource.delete_param(param, options[:domain])
       end
 
       def self.get_ldap_param(login,param)
