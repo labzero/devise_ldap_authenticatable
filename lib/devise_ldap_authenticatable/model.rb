@@ -27,10 +27,10 @@ module Devise
 
         Devise::LDAP::Adapter.update_own_password(login_with, @password, current_password)
       end
-      
+
       def reset_password!(new_password, new_password_confirmation)
         if new_password == new_password_confirmation && ::Devise.ldap_update_password
-          Devise::LDAP::Adapter.update_password(login_with, new_password)
+          Devise::LDAP::Adapter.update_password(login_with, new_password, ldap_domain_name)
         end
         clear_reset_password_token if valid?
         save
@@ -39,13 +39,17 @@ module Devise
       def password=(new_password)
         @password = new_password
         if defined?(password_digest) && @password.present? && respond_to?(:encrypted_password=)
-          self.encrypted_password = password_digest(@password) 
+          self.encrypted_password = password_digest(@password)
         end
       end
 
       # Checks if a resource is valid upon authentication.
       def valid_ldap_authentication?(password)
-        Devise::LDAP::Adapter.valid_credentials?(login_with, password)
+        Devise::LDAP::Adapter.valid_credentials?(login_with, password, ldap_domain_name)
+      end
+
+      def ldap_domain_name
+        @ldap_domain ||= (ldap_domain || Devise::LDAP::Adapter.get_ldap_domain(login_with))
       end
 
       def ldap_entry
@@ -81,8 +85,8 @@ module Devise
       # end
 
       # Called after a successful LDAP authentication
-      def after_ldap_authentication
-      end
+      # def after_ldap_authentication
+      # end
 
 
       module ClassMethods
@@ -92,7 +96,7 @@ module Devise
           return nil unless attributes[auth_key].present?
 
           auth_key_value = (self.case_insensitive_keys || []).include?(auth_key) ? attributes[auth_key].downcase : attributes[auth_key]
-      	  auth_key_value = (self.strip_whitespace_keys || []).include?(auth_key) ? auth_key_value.strip : auth_key_value
+          auth_key_value = (self.strip_whitespace_keys || []).include?(auth_key) ? auth_key_value.strip : auth_key_value
 
           resource = where(auth_key => auth_key_value).first
 

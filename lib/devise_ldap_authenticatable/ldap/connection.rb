@@ -4,12 +4,25 @@ module Devise
       attr_reader :ldap, :login
 
       def initialize(params = {})
+        ldap_options = params
+        @ldap_domain= ldap_options[:domain]
+        config_processed = false
         if ::Devise.ldap_config.is_a?(Proc)
           ldap_config = ::Devise.ldap_config.call
+          config_processed = true
         else
-          ldap_config = YAML.load(ERB.new(File.read(::Devise.ldap_config || "#{Rails.root}/config/ldap.yml")).result)[Rails.env]
+          raw_config = YAML.load(ERB.new(File.read(::Devise.ldap_config || "#{Rails.root}/config/ldap.yml")).result)[Rails.env]
         end
-        ldap_options = params
+        unless config_processed
+          if raw_config.is_a?(Hash)
+            ldap_config = raw_config
+          elsif @ldap_domain.is_a?(Symbol) || @ldap_domain.is_a?(String)
+            ldap_config = raw_config.find{ |config| config['name'] == @ldap_domain}
+          else
+            ldap_config = raw_config[@ldap_domain.to_i]
+          end
+        end
+
         ldap_config["ssl"] = :simple_tls if ldap_config["ssl"] === true
         ldap_options[:encryption] = ldap_config["ssl"].to_sym if ldap_config["ssl"]
 
@@ -52,6 +65,26 @@ module Devise
           else
             ldap_entry.dn
           end
+        end
+      end
+
+      def domain_user_sid
+        @domain_user_sid ||= begin
+          object_sid_array = binary_sid_to_string(@login_ldap_entry.send(:objectSid)[0]).split('-')
+          object_sid_array.delete_at(-1)
+          primary_group_sid_base = object_sid_array.join('-')
+          primary_group_id = @login_ldap_entry.send(:primaryGroupID)[0]
+          primary_group_sid_base + '-' + primary_group_id
+        end
+      end
+
+      def domain_user_dn(admin_ldap_connection)
+        result = admin_ldap_connection.search(filter: "objectSid=#{domain_user_sid}")
+        if result.present?
+          return result[0].dn
+        else
+          DeviseLdapAuthenticatable::Logger.send("No domain user found with objectSid: #{domain_user_sid}")
+          return nil # Don't want to return an empty array in the case where that is the value of `result`
         end
       end
 
@@ -120,33 +153,30 @@ module Devise
       end
 
       def in_group?(group_name, group_attribute = LDAP::DEFAULT_GROUP_UNIQUE_MEMBER_LIST_KEY)
-        in_group = false
-
         admin_ldap = Connection.admin
 
         unless ::Devise.ldap_ad_group_check
           admin_ldap.search(:base => group_name, :scope => Net::LDAP::SearchScope_BaseObject) do |entry|
             if entry[group_attribute].include? dn
-              in_group = true
+              return true
             end
           end
         else
           # AD optimization - extension will recursively check sub-groups with one query
           # "(memberof:1.2.840.113556.1.4.1941:=group_name)"
-          search_result = admin_ldap.search(:base => dn,
-                            :filter => Net::LDAP::Filter.ex("memberof:1.2.840.113556.1.4.1941", group_name),
-                            :scope => Net::LDAP::SearchScope_BaseObject)
-          # Will return  the user entry if belongs to group otherwise nothing
-          if search_result.length == 1 && search_result[0].dn.eql?(dn)
-            in_group = true
+          # Search both the user's group and the Domain User groups
+          [dn, domain_user_dn(admin_ldap)].each do |distinguished_name|
+            search_result = admin_ldap.search(:base => distinguished_name,
+                                              :filter => Net::LDAP::Filter.ex("memberof:1.2.840.113556.1.4.1941", group_name),
+                                              :scope => Net::LDAP::SearchScope_BaseObject)
+            # Will return  the user entry if belongs to group otherwise nothing
+            if search_result.length == 1 && search_result[0].dn.eql?(distinguished_name)
+              return true
+            end
           end
         end
 
-        unless in_group
-          DeviseLdapAuthenticatable::Logger.send("User #{dn} is not in group: #{group_name}")
-        end
-
-        return in_group
+        DeviseLdapAuthenticatable::Logger.send("User #{dn} is not in group: #{group_name}")
       end
 
       def has_required_attribute?
@@ -170,8 +200,12 @@ module Devise
         admin_ldap = Connection.admin
 
         DeviseLdapAuthenticatable::Logger.send("Getting groups for #{dn}")
-        filter = Net::LDAP::Filter.eq("uniqueMember", dn)
-        admin_ldap.search(:filter => filter, :base => @group_base).collect(&:dn)
+        groups = []
+        [dn, domain_user_dn(admin_ldap)].each do |distinguished_name|
+          filter = Net::LDAP::Filter.eq("member", distinguished_name)
+          groups << admin_ldap.search(:filter => filter, :base => @group_base).collect(&:dn)
+        end
+        groups.flatten
       end
 
       def valid_login?
@@ -196,7 +230,7 @@ module Devise
       private
 
       def self.admin
-        ldap = Connection.new(:admin => true).ldap
+        ldap = Connection.new(:admin => true, :domain => @ldap_domain).ldap
 
         unless ldap.bind
           DeviseLdapAuthenticatable::Logger.send("Cannot bind to admin LDAP user")
@@ -231,6 +265,20 @@ module Devise
         DeviseLdapAuthenticatable::Logger.send("Modifying user #{dn}")
         privileged_ldap.modify(:dn => dn, :operations => operations)
       end
+
+      def binary_sid_to_string(binary)
+        sid = []
+        revision = binary[0].ord
+        raise 'Unknown revision' if revision != 1
+        sid << revision
+        segment_count = binary[1].ord
+        raise 'invalid binary length' if binary.bytesize != (segment_count * 4) + 8 # 2 bytes for version and length, 6 bytes for extra wide first segment
+        high_bits, low_bits = binary.byteslice(2..7).unpack('nN')
+        sid << (high_bits << 32) + low_bits
+        sid << binary.byteslice(8..-1).unpack('V*')
+        'S-' + sid.flatten.join('-')
+      end
+
     end
   end
 end
