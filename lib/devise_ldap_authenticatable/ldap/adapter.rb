@@ -15,7 +15,7 @@ module Devise
         for i in 0...(ldap_config.size)
           options[:domain] = ldap_config[i]['name']
           resource = Devise::LDAP::Connection.new(options)
-          break if resource.search_for_login.present?
+          return ldap_config[i]['name'] if resource.search_for_login.present?
         end
         return nil
       end
