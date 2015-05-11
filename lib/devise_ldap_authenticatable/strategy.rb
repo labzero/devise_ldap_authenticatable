@@ -17,7 +17,7 @@ module Devise
         if resource.persisted?
           if validate(resource) { resource.valid_ldap_authentication?(password) }
             remember_me(resource)
-            resource.after_ldap_authentication
+            resource.after_ldap_authentication(resource.ldap_domain_name) if resource.respond_to?(:after_ldap_authentication)
             success!(resource)
           else
             return fail(:invalid) # Invalid credentials

@@ -3,26 +3,42 @@ require "net/ldap"
 module Devise
   module LDAP
     DEFAULT_GROUP_UNIQUE_MEMBER_LIST_KEY = 'uniqueMember'
-    
+
     module Adapter
-      def self.valid_credentials?(login, password_plaintext)
+
+      def self.get_ldap_domain(login)
+        ldap_config = YAML.load(ERB.new(File.read(::Devise.ldap_config || "#{Rails.root}/config/ldap.yml")).result)[Rails.env]
+        options = {:login => login,
+                   :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
+                   :admin => ::Devise.ldap_use_admin_to_bind}
+
+        for i in 0...(ldap_config.size)
+          options[:domain] = ldap_config[i]['name']
+          resource = Devise::LDAP::Connection.new(options)
+          return ldap_config[i]['name'] if resource.search_for_login.present?
+        end
+        return nil
+      end
+
+      def self.valid_credentials?(login, password_plaintext, ldap_domain = nil)
         options = {:login => login,
                    :password => password_plaintext,
                    :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
-                   :admin => ::Devise.ldap_use_admin_to_bind}
-
+                   :admin => ::Devise.ldap_use_admin_to_bind,
+                   :domain => ldap_domain || get_ldap_domain(login)}
         resource = Devise::LDAP::Connection.new(options)
-        resource.authorized?
+        resource.authorized?(options[:domain])
       end
 
-      def self.update_password(login, new_password)
+      def self.update_password(login, new_password, ldap_domain = nil)
         options = {:login => login,
                    :new_password => new_password,
                    :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
-                   :admin => ::Devise.ldap_use_admin_to_bind}
+                   :admin => ::Devise.ldap_use_admin_to_bind,
+                   :domain => ldap_domain || get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
-        resource.change_password! if new_password.present?
+        resource.change_password!(options[:domain]) if new_password.present?
       end
 
       def self.update_own_password(login, new_password, current_password)
@@ -32,7 +48,8 @@ module Devise
       def self.ldap_connect(login)
         options = {:login => login,
                    :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
-                   :admin => ::Devise.ldap_use_admin_to_bind}
+                   :admin => ::Devise.ldap_use_admin_to_bind,
+                   :domain => get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
       end
@@ -42,11 +59,11 @@ module Devise
       end
 
       def self.get_groups(login)
-        self.ldap_connect(login).user_groups
+        self.ldap_connect(login).user_groups(get_ldap_domain(login))
       end
 
       def self.in_ldap_group?(login, group_name, group_attribute = nil)
-        self.ldap_connect(login).in_group?(group_name, group_attribute)
+        self.ldap_connect(login).in_group?(group_name, group_attribute, get_ldap_domain(login))
       end
 
       def self.get_dn(login)
@@ -56,19 +73,21 @@ module Devise
       def self.set_ldap_param(login, param, new_value, password = nil)
         options = { :login => login,
                     :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
-                    :password => password }
+                    :password => password,
+                    :domain => get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
-        resource.set_param(param, new_value)
+        resource.set_param(param, new_value, options[:domain])
       end
 
       def self.delete_ldap_param(login, param, password = nil)
         options = { :login => login,
                     :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
-                    :password => password }
+                    :password => password,
+                    :domain => get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
-        resource.delete_param(param)
+        resource.delete_param(param, options[:domain])
       end
 
       def self.get_ldap_param(login,param)
