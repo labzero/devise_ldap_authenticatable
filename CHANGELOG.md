@@ -1,6 +1,10 @@
 CHANGELOG
 =========
 
+v0.9
+----
+(https://github.com/labzero/devise_ldap_authenticatable): Adds support for multiple LDAP configurations
+
 v0.8
 ----
 
