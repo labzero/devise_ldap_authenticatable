@@ -6,21 +6,13 @@ module Devise
       def initialize(params = {})
         ldap_options = params
         @ldap_domain= ldap_options[:domain]
-        config_processed = false
-        if ::Devise.ldap_config.is_a?(Proc)
-          ldap_config = ::Devise.ldap_config.call
-          config_processed = true
+        raw_config = Devise::LDAP::Adapter.ldap_config
+        if raw_config.is_a?(Hash)
+          ldap_config = raw_config
+        elsif @ldap_domain.is_a?(Symbol) || @ldap_domain.is_a?(String)
+          ldap_config = raw_config.find{ |config| config['name'] == @ldap_domain}
         else
-          raw_config = YAML.load(ERB.new(File.read(::Devise.ldap_config || "#{Rails.root}/config/ldap.yml")).result)[Rails.env]
-        end
-        unless config_processed
-          if raw_config.is_a?(Hash)
-            ldap_config = raw_config
-          elsif @ldap_domain.is_a?(Symbol) || @ldap_domain.is_a?(String)
-            ldap_config = raw_config.find{ |config| config['name'] == @ldap_domain}
-          else
-            ldap_config = raw_config[@ldap_domain.to_i]
-          end
+          ldap_config = raw_config[@ldap_domain.to_i]
         end
 
         ldap_config["ssl"] = :simple_tls if ldap_config["ssl"] === true
