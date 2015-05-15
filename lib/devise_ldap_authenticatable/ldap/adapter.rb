@@ -6,8 +6,17 @@ module Devise
 
     module Adapter
 
+      def self.ldap_config
+        if ::Devise.ldap_config.is_a?(Proc)
+          ldap_config = ::Devise.ldap_config.call
+        else
+          ldap_config = YAML.load(ERB.new(File.read(::Devise.ldap_config || "#{Rails.root}/config/ldap.yml")).result)[Rails.env]
+        end
+        ldap_config
+      end
+
       def self.get_ldap_domain(login)
-        ldap_config = YAML.load(ERB.new(File.read(::Devise.ldap_config || "#{Rails.root}/config/ldap.yml")).result)[Rails.env]
+        ldap_config = self.ldap_config
         options = {:login => login,
                    :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                    :admin => ::Devise.ldap_use_admin_to_bind}
