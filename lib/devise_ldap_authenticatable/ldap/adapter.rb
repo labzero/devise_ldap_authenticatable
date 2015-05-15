@@ -15,6 +15,20 @@ module Devise
         ldap_config
       end
 
+      def self.get_ldap_domain_from_dn(dn)
+        ldap_config = self.ldap_config
+        if ldap_config.is_a?(Hash)
+          return dn.end_with?(ldap_config['base']) ? ldap_config['name'] : nil
+        else
+          ldap_config.each_with_index do |config, i|
+            if dn.end_with?(config['base'])
+              return config['name'].present? ? config['name'] : i
+            end
+          end
+        end
+        nil
+      end
+
       def self.get_ldap_domain(login)
         ldap_config = self.ldap_config
         options = {:login => login,
