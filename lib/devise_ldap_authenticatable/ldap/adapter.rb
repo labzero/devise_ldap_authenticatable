@@ -68,58 +68,60 @@ module Devise
         set_ldap_param(login, :userPassword, ::Devise.ldap_auth_password_builder.call(new_password), current_password)
       end
 
-      def self.ldap_connect(login)
+      def self.ldap_connect(login, ldap_domain = nil)
         options = {:login => login,
                    :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                    :admin => ::Devise.ldap_use_admin_to_bind,
-                   :domain => get_ldap_domain(login)}
+                   :domain => ldap_domain || get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
       end
 
-      def self.valid_login?(login)
-        self.ldap_connect(login).valid_login?
+      def self.valid_login?(login, ldap_domain = nil)
+        self.ldap_connect(login, ldap_domain).valid_login?
       end
 
-      def self.get_groups(login)
-        self.ldap_connect(login).user_groups(get_ldap_domain(login))
+      def self.get_groups(login, ldap_domain = nil)
+        ldap_domain ||= get_ldap_domain(login)
+        self.ldap_connect(login, ldap_domain).user_groups(ldap_domain)
       end
 
-      def self.in_ldap_group?(login, group_name, group_attribute = nil)
-        self.ldap_connect(login).in_group?(group_name, group_attribute, get_ldap_domain(login))
+      def self.in_ldap_group?(login, group_name, group_attribute = nil, ldap_domain = nil)
+        ldap_domain ||= get_ldap_domain(login)
+        self.ldap_connect(login, ldap_domain).in_group?(group_name, group_attribute, ldap_domain)
       end
 
-      def self.get_dn(login)
-        self.ldap_connect(login).dn
+      def self.get_dn(login, ldap_domain = nil)
+        self.ldap_connect(login, ldap_domain).dn
       end
 
-      def self.set_ldap_param(login, param, new_value, password = nil)
+      def self.set_ldap_param(login, param, new_value, password = nil, ldap_domain = nil)
         options = { :login => login,
                     :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                     :password => password,
-                    :domain => get_ldap_domain(login)}
+                    :domain => ldap_domain || get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
         resource.set_param(param, new_value, options[:domain])
       end
 
-      def self.delete_ldap_param(login, param, password = nil)
+      def self.delete_ldap_param(login, param, password = nil, ldap_domain = nil)
         options = { :login => login,
                     :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                     :password => password,
-                    :domain => get_ldap_domain(login)}
+                    :domain => ldap_domain || get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
         resource.delete_param(param, options[:domain])
       end
 
-      def self.get_ldap_param(login,param)
-        resource = self.ldap_connect(login)
+      def self.get_ldap_param(login, param, ldap_domain = nil)
+        resource = self.ldap_connect(login, ldap_domain)
         resource.ldap_param_value(param)
       end
 
-      def self.get_ldap_entry(login)
-        self.ldap_connect(login).search_for_login
+      def self.get_ldap_entry(login, ldap_domain = nil)
+        self.ldap_connect(login, ldap_domain).search_for_login
       end
 
     end
