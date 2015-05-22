@@ -48,6 +48,19 @@ module Devise
         update_ldap({ param.to_sym => new_value }, ldap_domain)
       end
 
+      def set_params(params, ldap_domain)
+        update_ldap(params, ldap_domain)
+      end
+
+      def delete_params(params, ldap_domain)
+        if params.is_a?(Hash)
+          operations = params.collect { |param, value| [:delete, param, value] }
+        else
+          operations = params.collect { |param| [:delete, param, nil] }
+        end
+        update_ldap(operations, ldap_domain)
+      end
+
       def dn
         @dn ||= begin
           DeviseLdapAuthenticatable::Logger.send("LDAP dn lookup: #{@attribute}=#{@login}")

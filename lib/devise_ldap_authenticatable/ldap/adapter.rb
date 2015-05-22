@@ -96,23 +96,31 @@ module Devise
       end
 
       def self.set_ldap_param(login, param, new_value, password = nil, ldap_domain = nil)
+        self.set_ldap_params(login, {param => new_value}, password, ldap_domain)
+      end
+
+      def self.set_ldap_params(login, params, password = nil, ldap_domain = nil)
         options = { :login => login,
                     :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                     :password => password,
                     :domain => ldap_domain || get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
-        resource.set_param(param, new_value, options[:domain])
+        resource.set_params(params, options[:domain])
       end
 
       def self.delete_ldap_param(login, param, password = nil, ldap_domain = nil)
+        self.delete_ldap_params(login, [param], password, ldap_domain)
+      end
+
+      def self.delete_ldap_params(login, params, password = nil, ldap_domain = nil)
         options = { :login => login,
                     :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                     :password => password,
                     :domain => ldap_domain || get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
-        resource.delete_param(param, options[:domain])
+        resource.delete_params(params, options[:domain])
       end
 
       def self.get_ldap_param(login, param, ldap_domain = nil)
