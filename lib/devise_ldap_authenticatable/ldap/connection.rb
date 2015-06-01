@@ -52,6 +52,16 @@ module Devise
         update_ldap(params, ldap_domain)
       end
 
+      def delete_entry(ldap_domain)
+        if ::Devise.ldap_use_admin_to_bind
+          privileged_ldap = Connection.admin(ldap_domain)
+        else
+          authenticate!
+          privileged_ldap = self.ldap
+        end
+        privileged_ldap.delete dn: dn
+      end
+
       def delete_params(params, ldap_domain)
         if params.is_a?(Hash)
           operations = params.collect { |param, value| [:delete, param, value] }

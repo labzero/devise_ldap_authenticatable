@@ -132,6 +132,15 @@ module Devise
         self.ldap_connect(login, ldap_domain).search_for_login
       end
 
+      def self.delete_ldap_entry(login, password = nil, ldap_domain = nil)
+        options = { :login => login,
+                    :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
+                    :password => password,
+                    :domain => ldap_domain || get_ldap_domain(login)}
+        resource = Devise::LDAP::Connection.new(options)
+        resource.delete_entry(ldap_domain)
+      end
+
     end
 
   end
