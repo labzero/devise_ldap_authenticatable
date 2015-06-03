@@ -16,12 +16,13 @@ module Devise
       end
 
       def self.get_ldap_domain_from_dn(dn)
+        lower_dn = dn.downcase
         ldap_config = self.ldap_config
         if ldap_config.is_a?(Hash)
-          return dn.end_with?(ldap_config['base']) ? ldap_config['name'] : nil
+          return lower_dn.end_with?(ldap_config['base'].downcase) ? ldap_config['name'] : nil
         else
           ldap_config.each_with_index do |config, i|
-            if dn.end_with?(config['base'])
+            if lower_dn.end_with?(config['base'].downcase)
               return config['name'].present? ? config['name'] : i
             end
           end
