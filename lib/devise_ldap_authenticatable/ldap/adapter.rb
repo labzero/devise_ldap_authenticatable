@@ -104,6 +104,7 @@ module Devise
         options = { :login => login,
                     :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                     :password => password,
+                    :admin => ::Devise.ldap_use_admin_to_bind,
                     :domain => ldap_domain || get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
@@ -118,6 +119,7 @@ module Devise
         options = { :login => login,
                     :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                     :password => password,
+                    :admin => ::Devise.ldap_use_admin_to_bind,
                     :domain => ldap_domain || get_ldap_domain(login)}
 
         resource = Devise::LDAP::Connection.new(options)
@@ -137,6 +139,7 @@ module Devise
         options = { :login => login,
                     :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
                     :password => password,
+                    :admin => ::Devise.ldap_use_admin_to_bind,
                     :domain => ldap_domain || get_ldap_domain(login)}
         resource = Devise::LDAP::Connection.new(options)
         resource.delete_entry(ldap_domain)
