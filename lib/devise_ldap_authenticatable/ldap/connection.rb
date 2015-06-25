@@ -1,6 +1,8 @@
 module Devise
   module LDAP
     class Connection
+      POOLING_LDAP_OPTIONS = [:host, :port, :auth, :base, :encryption, :admin].freeze
+
       attr_reader :ldap, :login
 
       def initialize(params = {})
@@ -18,10 +20,6 @@ module Devise
         ldap_config["ssl"] = :simple_tls if ldap_config["ssl"] === true
         ldap_options[:encryption] = ldap_config["ssl"].to_sym if ldap_config["ssl"]
 
-        @ldap = Net::LDAP.new(ldap_options)
-        @ldap.host = ldap_config["host"]
-        @ldap.port = ldap_config["port"]
-        @ldap.base = ldap_config["base"]
         @attribute = ldap_config["attribute"]
         @allow_unauthenticated_bind = ldap_config["allow_unauthenticated_bind"]
 
@@ -32,12 +30,11 @@ module Devise
         @required_groups = ldap_config["required_groups"]
         @required_attributes = ldap_config["require_attribute"]
 
-        @ldap.auth ldap_config["admin_user"], ldap_config["admin_password"] if params[:admin]
-        @ldap.auth params[:login], params[:password] if ldap_config["admin_as_user"]
-
         @login = params[:login]
         @password = params[:password]
         @new_password = params[:new_password]
+
+        @ldap = pooled_connection(ldap_options, ldap_config)
       end
 
       def delete_param(param, ldap_domain)
@@ -71,12 +68,13 @@ module Devise
         update_ldap(operations, ldap_domain)
       end
 
-      def dn
+      def dn(connection=nil)
+        connection ||= @ldap
         @dn ||= begin
           DeviseLdapAuthenticatable::Logger.send("LDAP dn lookup: #{@attribute}=#{@login}")
           ldap_entry = search_for_login
           if ldap_entry.nil?
-            @ldap_auth_username_builder.call(@attribute,@login,@ldap)
+            @ldap_auth_username_builder.call(@attribute,@login,connection)
           else
             ldap_entry.dn
           end
@@ -129,7 +127,6 @@ module Devise
 
       def authenticate!
         return false unless (@password.present? || @allow_unauthenticated_bind)
-        @ldap.auth(dn, @password)
         @ldap.bind
       end
 
@@ -299,6 +296,50 @@ module Devise
         sid << (high_bits << 32) + low_bits
         sid << binary.byteslice(8..-1).unpack('V*')
         'S-' + sid.flatten.join('-')
+      end
+
+      def pooled_connection(ldap_options, ldap_config)
+        reduced_ldap_options = {}
+        
+        POOLING_LDAP_OPTIONS.each do |key|
+          reduced_ldap_options[key] = ldap_options[key] if ldap_options[key]
+        end
+
+        if !ldap_options[:admin]
+          reduced_ldap_options[:login] = ldap_options[:login] if ldap_options[:login]
+          reduced_ldap_options[:password] = ldap_options[:password] if ldap_options[:password]
+        end
+
+        pool_key = ''
+
+        reduced_ldap_options.keys.sort!.each do |key|
+          pool_key += "<#{key}:#{reduced_ldap_options[key]}>"
+        end
+
+        pool_key += '#'
+
+        ldap_config.keys.sort!.each do |key|
+          pool_key += "<#{key}:#{ldap_config[key]}>"
+        end
+
+        @@connection_pool ||= {}
+        @@connection_pool[pool_key] || (@@connection_pool[pool_key] =
+          (
+            ldap = Net::LDAP.new(ldap_options)
+            ldap.host = ldap_config["host"]
+            ldap.port = ldap_config["port"]
+            ldap.base = ldap_config["base"]
+
+            ldap.auth ldap_config["admin_user"], ldap_config["admin_password"] if ldap_options[:admin]
+            ldap.auth ldap_options[:login], ldap_options[:password] if ldap_config["admin_as_user"]
+
+            if ldap_options[:password].present? || ldap_config["allow_unauthenticated_bind"]
+              ldap.auth dn(ldap), ldap_options[:password]
+            end
+
+            ldap
+          )
+        )
       end
 
     end
