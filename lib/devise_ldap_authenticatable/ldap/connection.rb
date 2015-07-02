@@ -72,7 +72,7 @@ module Devise
         connection ||= @ldap
         @dn ||= begin
           DeviseLdapAuthenticatable::Logger.send("LDAP dn lookup: #{@attribute}=#{@login}")
-          ldap_entry = search_for_login
+          ldap_entry = search_for_login(connection)
           if ldap_entry.nil?
             @ldap_auth_username_builder.call(@attribute,@login,connection)
           else
@@ -234,13 +234,14 @@ module Devise
       # Searches the LDAP for the login
       #
       # @return [Object] the LDAP entry found; nil if not found
-      def search_for_login
+      def search_for_login(connection=nil)
+        connection ||= @ldap
         @login_ldap_entry ||= begin
           DeviseLdapAuthenticatable::Logger.send("LDAP search for login: #{@attribute}=#{@login}")
           filter = Net::LDAP::Filter.eq(@attribute.to_s, @login.to_s)
           ldap_entry = nil
           match_count = 0
-          @ldap.search(:filter => filter) {|entry| ldap_entry = entry; match_count+=1}
+          connection.search(:filter => filter) {|entry| ldap_entry = entry; match_count+=1}
           DeviseLdapAuthenticatable::Logger.send("LDAP search yielded #{match_count} matches")
           ldap_entry
         end
