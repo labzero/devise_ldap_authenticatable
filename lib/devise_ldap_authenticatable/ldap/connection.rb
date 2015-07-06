@@ -20,6 +20,14 @@ module Devise
         ldap_config["ssl"] = :simple_tls if ldap_config["ssl"] === true
         ldap_options[:encryption] = ldap_config["ssl"].to_sym if ldap_config["ssl"]
 
+        @ldap = if Thread.current['ldap_connection_sharing_enabled']
+          hash = hash_ldap_config(ldap_config, ldap_options)
+          Thread.current['ldap_shared_connection'] ||= {}
+          Thread.current['ldap_shared_connection'][hash] ||= build_ldap_connection(ldap_config, ldap_options)
+        else
+          build_ldap_connection(ldap_config, ldap_options)
+        end
+        
         @attribute = ldap_config["attribute"]
         @allow_unauthenticated_bind = ldap_config["allow_unauthenticated_bind"]
 
@@ -30,11 +38,12 @@ module Devise
         @required_groups = ldap_config["required_groups"]
         @required_attributes = ldap_config["require_attribute"]
 
+        @ldap.auth ldap_config["admin_user"], ldap_config["admin_password"] if params[:admin]
+        @ldap.auth params[:login], params[:password] if ldap_config["admin_as_user"]
+
         @login = params[:login]
         @password = params[:password]
         @new_password = params[:new_password]
-
-        @ldap = pooled_connection(ldap_options, ldap_config)
       end
 
       def delete_param(param, ldap_domain)
@@ -106,6 +115,7 @@ module Devise
           return nil # Don't want to return an empty array in the case where that is the value of `result`
         end
       end
+      end
 
       def ldap_param_value(param)
         ldap_entry = search_for_login
@@ -127,6 +137,7 @@ module Devise
 
       def authenticate!
         return false unless (@password.present? || @allow_unauthenticated_bind)
+        @ldap.auth(dn, @password)
         @ldap.bind
       end
 
@@ -299,48 +310,25 @@ module Devise
         'S-' + sid.flatten.join('-')
       end
 
-      def pooled_connection(ldap_options, ldap_config)
-        reduced_ldap_options = {}
-        
+      def hash_ldap_config(ldap_config, ldap_options)
+        hash = ''
+
         POOLING_LDAP_OPTIONS.each do |key|
-          reduced_ldap_options[key] = ldap_options[key] if ldap_options[key]
+          hash += "<#{key}:#{ldap_options[key]}>" if ldap_options[key]
         end
-
-        if !ldap_options[:admin]
-          reduced_ldap_options[:login] = ldap_options[:login] if ldap_options[:login]
-          reduced_ldap_options[:password] = ldap_options[:password] if ldap_options[:password]
-        end
-
-        pool_key = ''
-
-        reduced_ldap_options.keys.sort!.each do |key|
-          pool_key += "<#{key}:#{reduced_ldap_options[key]}>"
-        end
-
-        pool_key += '#'
 
         ldap_config.keys.sort!.each do |key|
-          pool_key += "<#{key}:#{ldap_config[key]}>"
+          hash += "<#{key}:#{ldap_config[key]}>"
         end
+        Digest::SHA2.digest(hash)
+      end
 
-        @@connection_pool ||= {}
-        @@connection_pool[pool_key] || (@@connection_pool[pool_key] =
-          (
-            ldap = Net::LDAP.new(ldap_options)
-            ldap.host = ldap_config["host"]
-            ldap.port = ldap_config["port"]
-            ldap.base = ldap_config["base"]
-
-            ldap.auth ldap_config["admin_user"], ldap_config["admin_password"] if ldap_options[:admin]
-            ldap.auth ldap_options[:login], ldap_options[:password] if ldap_config["admin_as_user"]
-
-            if ldap_options[:password].present? || ldap_config["allow_unauthenticated_bind"]
-              ldap.auth dn(ldap), ldap_options[:password]
-            end
-
-            ldap
-          )
-        )
+      def build_ldap_connection(config, options)
+        ldap = Net::LDAP.new(options)
+        ldap.host = config["host"]
+        ldap.port = config["port"]
+        ldap.base = config["base"]
+        ldap
       end
 
     end

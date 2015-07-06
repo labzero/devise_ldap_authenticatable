@@ -6,6 +6,16 @@ module Devise
 
     module Adapter
 
+      def self.shared_connection
+        begin
+          Thread.current['ldap_connection_sharing_enabled'] = true
+          yield
+        ensure
+          Thread.current['ldap_shared_connection'] = nil
+          Thread.current['ldap_connection_sharing_enabled'] = false
+        end
+      end
+
       def self.ldap_config
         if ::Devise.ldap_config.is_a?(Proc)
           ldap_config = ::Devise.ldap_config.call
