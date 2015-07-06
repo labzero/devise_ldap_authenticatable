@@ -115,7 +115,6 @@ module Devise
           return nil # Don't want to return an empty array in the case where that is the value of `result`
         end
       end
-      end
 
       def ldap_param_value(param)
         ldap_entry = search_for_login
