@@ -17,8 +17,21 @@ module Devise
           ldap_config = raw_config[@ldap_domain.to_i]
         end
 
-        ldap_config["ssl"] = :simple_tls if ldap_config["ssl"] === true
-        ldap_options[:encryption] = ldap_config["ssl"].to_sym if ldap_config["ssl"]
+        if ldap_config["ssl"]
+          ldap_options[:encryption] = case ldap_config['ssl']
+          when true
+            :simple_tls
+          when Hash
+            ssl_hash = {}
+            ssl_hash[:method] = (ldap_config['ssl']['method'] || :simple_tls).to_sym
+            ssl_hash[:tls_options] = {}
+            (ldap_config['ssl']['tls_options'] || {}).each do |key, value|
+              ssl_hash[:tls_options][key.to_sym] = value
+            end
+          else
+            ldap_config['ssl'].to_sym
+          end
+        end
 
         @ldap = if Thread.current['ldap_connection_sharing_enabled']
           hash = hash_ldap_config(ldap_config, ldap_options)
