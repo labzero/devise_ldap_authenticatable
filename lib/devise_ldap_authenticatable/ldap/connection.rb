@@ -17,6 +17,8 @@ module Devise
           ldap_config = raw_config[@ldap_domain.to_i]
         end
 
+        ldap_config = ldap_config.with_indifferent_access
+
         if ldap_config["ssl"]
           ldap_options[:encryption] = case ldap_config['ssl']
           when true
@@ -28,6 +30,7 @@ module Devise
             (ldap_config['ssl']['tls_options'] || {}).each do |key, value|
               ssl_hash[:tls_options][key.to_sym] = value
             end
+            ssl_hash
           else
             ldap_config['ssl'].to_sym
           end
