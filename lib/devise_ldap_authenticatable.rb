@@ -36,8 +36,20 @@ module Devise
   mattr_accessor :ldap_auth_username_builder
   @@ldap_auth_username_builder = Proc.new() {|attribute, login, ldap| "#{attribute}=#{login},#{ldap.base}" }
 
+  mattr_accessor :ldap_auth_password_builder
+  @@ldap_auth_password_builder = Proc.new() do |new_password|
+    if ::Devise.ldap_password_attribute == :unicodePwd
+      "\"#{new_password}\"".encode('UTF-16LE').force_encoding('ASCII') # AD Password encoding
+    else
+      Net::LDAP::Password.generate(:sha, new_password)
+    end
+  end
+
   mattr_accessor :ldap_ad_group_check
   @@ldap_ad_group_check = false
+
+  mattr_accessor :ldap_password_attribute
+  @@ldap_password_attribute = :userpassword
 end
 
 # Add ldap_authenticatable strategy to defaults.
