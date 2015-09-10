@@ -11,10 +11,41 @@ module Devise
     #
     module LdapAuthenticatable
       extend ActiveSupport::Concern
+      extend ActiveSupport::Callbacks
 
       included do
         attr_reader :current_password, :password
         attr_accessor :password_confirmation
+        define_callbacks :ldap_password_save, scope: [:kind, :name], 
+          skip_after_callbacks_if_terminated: true,
+          terminator: ->(target, result) { result == false }
+
+        before_save do
+          if ::Devise.ldap_update_password && password_changed?
+            clear_reset_password_token
+            @restore_token_on_rollback = true
+          end
+        end
+
+        after_save do
+          if ::Devise.ldap_update_password && password_changed?
+            run_callbacks :ldap_password_save do
+              if Devise::LDAP::Adapter.update_password(login_with, self.password, ldap_domain_name)
+                @password = nil
+                @password_confirmation = nil
+              else
+                raise ActiveRecord::Rollback
+              end
+            end
+          end
+        end
+
+        after_rollback do
+          if @restore_token_on_rollback
+            restore_attributes(Devise::Models::Recoverable.required_fields(self.class))
+            @restore_token_on_rollback = false
+          end
+        end
       end
 
       def login_with
@@ -28,19 +59,21 @@ module Devise
         Devise::LDAP::Adapter.update_own_password(login_with, @password, current_password)
       end
 
-      def reset_password!(new_password, new_password_confirmation)
-        if new_password == new_password_confirmation && ::Devise.ldap_update_password
-          Devise::LDAP::Adapter.update_password(login_with, new_password, ldap_domain_name)
-        end
-        clear_reset_password_token if valid?
-        save
+      def password_confirmation=(new_password_confirmation)
+        attribute_will_change!('password_confirmation') unless password_confirmation == new_password_confirmation
+        @password_confirmation = new_password_confirmation
       end
 
       def password=(new_password)
+        attribute_will_change!('password') unless password == new_password
         @password = new_password
         if defined?(password_digest) && @password.present? && respond_to?(:encrypted_password=)
           self.encrypted_password = password_digest(@password)
         end
+      end
+
+      def password_changed?
+        changed.include?('password')
       end
 
       # Checks if a resource is valid upon authentication.

@@ -88,6 +88,8 @@ In initializer  `config/initializers/devise.rb` :
   * When set to true, the admin user will be used to bind to the LDAP server during authentication.
 * `ldap_check_group_membership_without_admin` _(default: false)_
   * When set to true, the group membership check is done with the user's own credentials rather than with admin credentials. Since these credentials are only available to the Devise user model during the login flow, the group check function will not work if a group check is performed when this option is true outside of the login flow (e.g., before particular actions).
+* `ldap_password_attribute` _(default: `:userpassword`)_
+  * What attribute to use when setting a user password. Set to `:unicodePwd` to work with modern AD servers. If this value is set to `:unicodePwd`, the default `ldap_auth_password_builder` will do the proper encoding.
 
 Advanced Configuration
 ----------------------
@@ -95,7 +97,7 @@ These parameters will be added to `config/initializers/devise.rb` when you pass 
 
 * `ldap_auth_username_builder` _(default: `Proc.new() {|attribute, login, ldap| "#{attribute}=#{login},#{ldap.base}" }`)_
   * You can pass a proc to the username option to explicitly specify the format that you search for a users' DN on your LDAP server.
-* `ldap_auth_password_build` _(default: `Proc.new() {|new_password| Net::LDAP::Password.generate(:sha, new_password) }`)_
+* `ldap_auth_password_builder` _(default: `Proc.new() {|new_password| ::Devise.ldap_password_attribute == :unicodePwd ? "\"#{new_password}\"".encode('UTF-16LE').force_encoding('ASCII') : Net::LDAP::Password.generate(:sha, new_password) }`)_
   * Optionally you can define a proc to create custom password encrption when user reset password
 
 Troubleshooting
