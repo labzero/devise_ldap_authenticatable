@@ -34,6 +34,7 @@ module Devise
                 @password = nil
                 @password_confirmation = nil
               else
+                errors.add(:password, :ldap_update_failed)
                 raise ActiveRecord::Rollback
               end
             end
