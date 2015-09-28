@@ -99,7 +99,7 @@ module Devise
 
       def self.in_ldap_group?(login, group_name, group_attribute = nil, ldap_domain = nil)
         ldap_domain ||= get_ldap_domain(login)
-        self.ldap_connect(login, ldap_domain).in_group?(group_name, group_attribute, ldap_domain)
+        self.ldap_connect(login, ldap_domain).in_group?(group_name, ldap_domain, group_attribute)
       end
 
       def self.get_dn(login, ldap_domain = nil)

@@ -165,7 +165,7 @@ module Devise
         if !authenticated?
           DeviseLdapAuthenticatable::Logger.send("Not authorized because not authenticated.")
           return false
-        elsif !in_required_groups?
+        elsif !in_required_groups?(ldap_domain)
           DeviseLdapAuthenticatable::Logger.send("Not authorized because not in required groups.")
           return false
         elsif !has_required_attribute?(ldap_domain)
@@ -180,7 +180,7 @@ module Devise
         update_ldap({::Devise.ldap_password_attribute => ::Devise.ldap_auth_password_builder.call(@new_password)}, ldap_domain)
       end
 
-      def in_required_groups?
+      def in_required_groups?(ldap_domain)
         return true unless @check_group_membership
 
         ## FIXME set errors here, the ldap.yml isn't set properly.
@@ -188,15 +188,15 @@ module Devise
 
         for group in @required_groups
           if group.is_a?(Array)
-            return false unless in_group?(group[1], group[0])
+            return false unless in_group?(group[1], ldap_domain, group[0])
           else
-            return false unless in_group?(group)
+            return false unless in_group?(group, ldap_domain)
           end
         end
         return true
       end
 
-      def in_group?(group_name, group_attribute = LDAP::DEFAULT_GROUP_UNIQUE_MEMBER_LIST_KEY, ldap_domain)
+      def in_group?(group_name, ldap_domain, group_attribute = LDAP::DEFAULT_GROUP_UNIQUE_MEMBER_LIST_KEY)
         admin_ldap = Connection.admin(ldap_domain)
         unless ::Devise.ldap_ad_group_check
           admin_ldap.search(:base => group_name, :scope => Net::LDAP::SearchScope_BaseObject) do |entry|
