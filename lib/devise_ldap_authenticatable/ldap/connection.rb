@@ -199,11 +199,9 @@ module Devise
       def in_group?(group_name, ldap_domain, group_attribute = LDAP::DEFAULT_GROUP_UNIQUE_MEMBER_LIST_KEY)
         admin_ldap = Connection.admin(ldap_domain)
         unless ::Devise.ldap_ad_group_check
-          admin_ldap.search(:base => group_name, :scope => Net::LDAP::SearchScope_BaseObject) do |entry|
-            if entry[group_attribute].include? dn
-              return true
-            end
-          end
+          filter = Net::LDAP::Filter.eq(group_attribute, dn)
+          groups = admin_ldap.search(:base => group_name, :scope => Net::LDAP::SearchScope_BaseObject, :filter => filter)
+          return true if groups && groups.length > 0
         else
           # AD optimization - extension will recursively check sub-groups with one query
           # "(memberof:1.2.840.113556.1.4.1941:=group_name)"
