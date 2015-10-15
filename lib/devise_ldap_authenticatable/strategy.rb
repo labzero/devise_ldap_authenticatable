@@ -10,7 +10,7 @@ module Devise
       # indicating whether the resource is not found in the database or the credentials
       # are invalid.
       def authenticate!
-        resource = mapping.to.find_for_ldap_authentication(authentication_hash.merge(password: password))
+        resource = mapping.to.find_for_ldap_authentication(authentication_hash.merge(password: password), self)
 
         return fail(:invalid) unless resource
 
@@ -25,7 +25,7 @@ module Devise
         end
 
         if resource.new_record?
-          if validate(resource) { resource.valid_ldap_authentication?(password) }
+          if validate(resource) { resource.valid_ldap_authentication?(password, self) }
             return fail(:not_found_in_database) # Valid credentials
           else
             return fail(:invalid) # Invalid credentials
