@@ -125,7 +125,7 @@ module Devise
 
       module ClassMethods
         # Find a user for ldap authentication.
-        def find_for_ldap_authentication(attributes={})
+        def find_for_ldap_authentication(attributes={}, strategy)
           auth_key = self.authentication_keys.first
           return nil unless attributes[auth_key].present?
 
@@ -139,7 +139,7 @@ module Devise
             resource[auth_key] = auth_key_value
           end
 
-          if ::Devise.ldap_create_user && resource.new_record? && resource.valid_ldap_authentication?(attributes[:password])
+          if ::Devise.ldap_create_user && resource.new_record? && resource.valid_ldap_authentication?(attributes[:password], strategy)
             resource.ldap_before_save if resource.respond_to?(:ldap_before_save)
             resource.save!
           end
