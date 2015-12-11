@@ -36,9 +36,8 @@ module Devise
           end
         end
 
-        @ldap = if Thread.current['ldap_connection_sharing_enabled']
+        @ldap = if Devise::LDAP::Adapter.sharing_enabled?
           hash = hash_ldap_config(ldap_config, ldap_options)
-          Thread.current['ldap_shared_connection'] ||= {}
           Thread.current['ldap_shared_connection'][hash] ||= build_ldap_connection(ldap_config, ldap_options)
         else
           build_ldap_connection(ldap_config, ldap_options)
@@ -76,12 +75,14 @@ module Devise
 
       def delete_entry(ldap_domain)
         if ::Devise.ldap_use_admin_to_bind
-          privileged_ldap = Connection.admin(ldap_domain)
+          connection = Connection.admin(ldap_domain)
         else
           authenticate!
-          privileged_ldap = self.ldap
+          connection = self
         end
-        privileged_ldap.delete dn: dn
+        connection.open do
+          connection.ldap.delete dn: dn
+        end
       end
 
       def delete_params(params, ldap_domain)
@@ -94,7 +95,7 @@ module Devise
       end
 
       def dn(connection=nil)
-        connection ||= @ldap
+        connection ||= self
         @dn ||= begin
           DeviseLdapAuthenticatable::Logger.send("LDAP dn lookup: #{@attribute}=#{@login}")
           ldap_entry = search_for_login(connection)
@@ -123,7 +124,10 @@ module Devise
 
       def primary_group_dn(admin_ldap_connection)
         return nil if primary_group_sid.blank?
-        result = admin_ldap_connection.search(filter: "objectSid=#{primary_group_sid}")
+        result = nil
+        admin_ldap_connection.open do |ldap|
+          result = ldap.search(filter: "objectSid=#{primary_group_sid}")
+        end
         if result.present?
           return result[0].dn 
         else
@@ -152,8 +156,10 @@ module Devise
 
       def authenticate!
         return false unless (@password.present? || @allow_unauthenticated_bind)
-        @ldap.auth(dn, @password)
-        @ldap.bind
+        self.open do |ldap|
+          ldap.auth(dn, @password)
+          ldap.bind
+        end
       end
 
       def authenticated?
@@ -200,7 +206,9 @@ module Devise
         admin_ldap = Connection.admin(ldap_domain)
         unless ::Devise.ldap_ad_group_check
           filter = Net::LDAP::Filter.eq(group_attribute, dn)
-          groups = admin_ldap.search(:base => group_name, :scope => Net::LDAP::SearchScope_BaseObject, :filter => filter)
+          groups = admin_ldap.open do |ldap|
+            ldap.search(:base => group_name, :scope => Net::LDAP::SearchScope_BaseObject, :filter => filter)
+          end
           return true if groups && groups.length > 0
         else
           # AD optimization - extension will recursively check sub-groups with one query
@@ -208,9 +216,11 @@ module Devise
           # Search both the user's group and the Domain User groups
           [dn, primary_group_dn(admin_ldap)].each do |distinguished_name|
             next if distinguished_name.blank?
-            search_result = admin_ldap.search(:base => distinguished_name,
+            admin_ldap.open do |ldap|
+              search_result = ldap.search(:base => distinguished_name,
                                               :filter => Net::LDAP::Filter.ex("memberof:1.2.840.113556.1.4.1941", group_name),
                                               :scope => Net::LDAP::SearchScope_BaseObject)
+            end
             # Will return  the user entry if belongs to group otherwise nothing
             if search_result.length == 1 && search_result[0].dn.eql?(distinguished_name)
               return true
@@ -246,7 +256,9 @@ module Devise
         [dn, primary_group_dn(admin_ldap)].each do |distinguished_name|
           next if distinguished_name.blank?
           filter = Net::LDAP::Filter.eq("member", distinguished_name)
-          groups << admin_ldap.search(:filter => filter, :base => @group_base)
+          admin_ldap.open do |ldap|
+            groups << ldap.search(:filter => filter, :base => @group_base)
+          end
         end
         groups.flatten
       end
@@ -259,34 +271,61 @@ module Devise
       #
       # @return [Object] the LDAP entry found; nil if not found
       def search_for_login(connection=nil)
-        connection ||= @ldap
+        connection ||= self
         @login_ldap_entry ||= begin
           DeviseLdapAuthenticatable::Logger.send("LDAP search for login: #{@attribute}=#{@login}")
           filter = Net::LDAP::Filter.eq(@attribute.to_s, @login.to_s)
           ldap_entry = nil
           match_count = 0
-          connection.search(:filter => filter) {|entry| ldap_entry = entry; match_count+=1}
+          connection.open do |ldap|
+            ldap.search(:filter => filter) {|entry| ldap_entry = entry; match_count+=1}
+          end
           DeviseLdapAuthenticatable::Logger.send("LDAP search yielded #{match_count} matches")
           ldap_entry
         end
       end
 
+      def open
+        result = nil
+        @ldap.open if @ldap.closed?
+        if block_given?
+          begin
+            result = yield @ldap
+          ensure
+            close_unless_shared
+          end
+        end
+        result
+      end
+
+      def close
+        @ldap.close unless @ldap.closed?
+      end
+
       private
 
       def self.admin(ldap_domain)
-        ldap = Connection.new(:admin => true, :domain => ldap_domain).ldap
+        connection = Connection.new(:admin => true, :domain => ldap_domain)
 
-        unless ldap.bind
-          DeviseLdapAuthenticatable::Logger.send("Cannot bind to admin LDAP user")
-          raise DeviseLdapAuthenticatable::LdapException, "Cannot connect to admin LDAP user"
+        connection.open do |ldap|
+          unless ldap.bind
+            DeviseLdapAuthenticatable::Logger.send("Cannot bind to admin LDAP user")
+            raise DeviseLdapAuthenticatable::LdapException, "Cannot connect to admin LDAP user"
+          end
         end
 
-        return ldap
+        return connection
       end
 
-      def find_ldap_user(ldap)
+      def close_unless_shared
+        close unless Devise::LDAP::Adapter.sharing_enabled?
+      end
+
+      def find_ldap_user(connection)
         DeviseLdapAuthenticatable::Logger.send("Finding user: #{dn}")
-        ldap.search(:base => dn, :scope => Net::LDAP::SearchScope_BaseObject).try(:first)
+        connection.open do |ldap|
+          ldap.search(:base => dn, :scope => Net::LDAP::SearchScope_BaseObject).try(:first)
+        end
       end
 
       def update_ldap(ops, ldap_domain)
@@ -303,11 +342,13 @@ module Devise
           privileged_ldap = Connection.admin(ldap_domain)
         else
           authenticate!
-          privileged_ldap = self.ldap
+          privileged_ldap = self
         end
 
         DeviseLdapAuthenticatable::Logger.send("Modifying user #{dn}")
-        privileged_ldap.modify(:dn => dn, :operations => operations)
+        privileged_ldap.open do |ldap|
+          ldap.modify(:dn => dn, :operations => operations)
+        end
       end
 
       def binary_sid_to_string(binary)

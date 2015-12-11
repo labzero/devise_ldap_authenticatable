@@ -1,4 +1,5 @@
 # encoding: utf-8
+require_relative 'net/ldap_patch'
 require 'devise'
 
 require 'devise_ldap_authenticatable/exception'
