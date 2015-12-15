@@ -7,13 +7,26 @@ module Devise
     module Adapter
 
       def self.shared_connection
+        result = nil
         begin
+          was_enabled = sharing_enabled?
           Thread.current['ldap_connection_sharing_enabled'] = true
-          yield
+          Thread.current['ldap_shared_connection'] ||= {}
+          result = yield
         ensure
-          Thread.current['ldap_shared_connection'] = nil
-          Thread.current['ldap_connection_sharing_enabled'] = false
+          unless was_enabled
+            Thread.current['ldap_shared_connection'].each do |hash, connection|
+              connection.close
+            end
+            Thread.current['ldap_shared_connection'] = nil
+            Thread.current['ldap_connection_sharing_enabled'] = false
+          end
         end
+        result
+      end
+
+      def self.sharing_enabled?
+        !!Thread.current['ldap_connection_sharing_enabled']
       end
 
       def self.ldap_config
