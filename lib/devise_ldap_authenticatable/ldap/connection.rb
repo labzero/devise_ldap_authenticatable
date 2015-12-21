@@ -302,6 +302,10 @@ module Devise
         @ldap.close unless @ldap.closed?
       end
 
+      def base
+        @ldap.base
+      end
+
       private
 
       def self.admin(ldap_domain)
