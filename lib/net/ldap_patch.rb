@@ -1,14 +1,14 @@
 require 'net/ldap'
 
 if defined?(Net::LDAP)
-  class Net::LDAP
-    def open_with_persistent_connection(*args, &block)
+  module LDAPWithPersistentConnections
+    def open(*args, &block)
       if block_given?
-        open_without_persistent_connection(*args, &block)
+        super(*args, &block)
       else
         begin
           local_connection = nil
-          open_without_persistent_connection(*args) do |ldap|
+          super(*args) do |ldap|
             local_connection = @open_connection
             @open_connection = nil
           end
@@ -26,7 +26,6 @@ if defined?(Net::LDAP)
       @open_connection.close unless closed?
       @open_connection = nil
     end
-
-    alias_method_chain :open, :persistent_connection
   end
+  Net::LDAP.send(:prepend, LDAPWithPersistentConnections)
 end
